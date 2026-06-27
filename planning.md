@@ -1,6 +1,6 @@
 # Provenance Guard
 
-Provenance Guard is a Flask-based backend API that analyzes submitted text to estimate whether it is likely human-written or AI-generated. Instead of relying on a single detector, the system combines multiple independent signals to produce a confidence score, generates a transparency label for users, records every decision in an audit log, and provides an appeals process when creators disagree with the result. The goal is to communicate uncertainty honestly rather than making absolute claims.
+Provenance Guard is a Flask based backend API that estimates whether submitted text is more likely to be human written or AI generated. Rather than making absolute decisions, the system combines multiple independent detection signals to calculate a confidence score. The result is translated into a plain language transparency label for users. Every prediction is stored in a structured audit log, and creators may submit appeals if they believe their work has been incorrectly classified. The primary goal is to provide transparency while acknowledging that AI detection is inherently uncertain.
 
 ## Architecture Narrative
 
@@ -29,34 +29,42 @@ The appeal records the creator's explanation, updates the submission status to "
 
 ### Signal 1 — Groq LLM
 
-**Property measured**
+**What it measures**
 
-Overall semantic consistency, writing style, and language patterns.
+This signal analyzes the overall writing style, semantic coherence, fluency, and language patterns of the submitted text.
+
+Output ->  A confidence value between 0.0 and 1.0, where values closer to 1 indicate stronger evidence that the text is AI-generated.
+
+Example: 0.82
 
 **Why it helps**
 
-Large language models recognize many patterns that distinguish AI-generated writing from human writing.
+Large language models recognize complex linguistic patterns that are difficult to capture using simple statistical methods.
 
 **Blind Spot**
 
-Highly polished human writing or heavily edited AI text may confuse the model.
+The model may confidently misclassify highly polished human writing or edited AI-generated content.
 
 
 ### Signal 2 — Stylometric Heuristics
 
-**Property measured**
-
+**What it measures**
+The system computes measurable writing statistics including:
 - Vocabulary diversity
 - Sentence length variation
 - Punctuation density
 
+Output -> A normalized score between 0.0 and 1.0, where higher values indicate writing patterns that appear more AI-like.
+
+Example: 0.67
+
 **Why it helps**
 
-Human writing usually contains more variation than AI-generated writing.
+Human writing often contains greater variability, while AI generated writing tends to be more statistically uniform.
 
 **Blind Spot**
 
-Statistical writing features alone cannot determine authorship.
+Stylometric features alone cannot determine authorship because experienced writers and carefully edited AI content may produce similar statistics.
 
 
 ## False Positive Scenario
@@ -70,6 +78,99 @@ Instead of returning a high confidence AI result, the confidence score decreases
 The creator may submit an appeal explaining why they believe the work is original.
 
 The appeal updates the submission status to "Under Review" and is stored in the audit log.
+
+## Confidence Scoring and Uncertainty
+
+Both signals return values between 0.0 and 1.0.
+
+The final confidence score is calculated using a weighted average.
+
+Groq LLM: 60%
+Stylometric heuristics: 40%
+
+Final Confidence = (Groq × 0.60) + (Stylometry × 0.40)
+
+The resulting confidence determines the final classification.
+
+Confidence	Classification
+0.00–0.39	Likely Human
+0.40–0.60	Uncertain
+0.61–1.00	Likely AI
+
+A confidence score of 0.60 means the available evidence is mixed. The system does not have sufficient certainty to confidently classify the text as either AI-generated or human-written, so it presents an "Uncertain" result rather than forcing a binary decision.
+
+## Transparency Label Design
+
+### High-Confidence AI
+
+***Likely AI-generated***
+
+Our analysis found strong indicators that this content was generated using an AI writing system.
+
+***Confidence: High***
+
+This result is an automated estimate and may be appealed if you believe it is incorrect.
+
+### High-Confidence Human
+
+***Likely Human-written***
+
+Our analysis found strong indicators that this content was written by a human author.
+
+***Confidence: High***
+
+No automated system is perfect. If you believe this result is incorrect, you may request a review.
+
+### Uncertain
+
+***Uncertain***
+
+The submitted content contains characteristics commonly found in both human-written and AI-generated text.
+
+***Confidence: Moderate***
+
+The system cannot make a confident determination. Additional review may be appropriate.
+
+
+## Appeals Workflow
+
+Any creator whose content has been analyzed may submit an appeal.
+
+The appeal request includes:
+
+- Submission ID
+- Appeal reason
+- Timestamp
+
+When an appeal is received, the system:
+
+1. Stores the creator's explanation.
+2. Changes the submission status to Under Review.
+3. Records the appeal in the structured audit log.
+
+A human reviewer would see:
+
+- Original submitted text
+- Original prediction
+- Confidence score
+- Detection signal values
+- Creator's appeal explanation
+- Current review status
+- Submission timestamp
+
+## Anticipated Edge Cases
+
+### Edge Case 1
+
+A poem that intentionally uses repetitive language and very simple vocabulary may resemble AI-generated writing according to stylometric measurements even though it was written by a human.
+
+### Edge Case 2
+
+A human author who edits AI-generated text extensively may produce writing that appears highly human-like, reducing the confidence of the detector.
+
+### Edge Case 3
+
+Very short submissions (one or two sentences) provide insufficient information for both detection signals and will naturally produce lower confidence scores.
 
 
 ## API Endpoints
@@ -86,10 +187,10 @@ Input
 Output
 
 {
-  "submission_id":1,
-  "prediction":"Likely AI",
-  "confidence":0.81,
-  "label":"Likely AI-generated..."
+  "submission_id":1,                # Prediction
+  "prediction":"Likely AI",         # Confidence score
+  "confidence":0.81,                # Transparency label
+  "label":"Likely AI-generated..."  # Submission ID
 }
 
 ### POST /appeal
@@ -104,15 +205,15 @@ Input
 Output
 
 {
-  "status":"Under Review",
-  "message":"Appeal submitted."
+  "status":"Under Review",       # Updated status
+  "message":"Appeal submitted."  # Confirmation message
 }
 
 ### GET /log
-Returns the audit log.
+Returns the structured audit log containing all attribution decisions and appeals.
 
 ### GET /
-Returns API status.
+Returns simple API status message.
 
 ## Architecture
  
@@ -159,4 +260,8 @@ Returns API status.
                         Append Audit Log
                            |
                         JSON Response
+
+The submission flow begins when a user submits text through the /submit endpoint. The system validates the request, analyzes the text using two independent detection signals, combines the results into a confidence score, generates a transparency label, records the decision in the audit log, and returns the response.
+
+The appeal flow allows creators to challenge a classification. The appeal records the creator's explanation, changes the submission status to Under Review, stores the appeal in the audit log, and returns a confirmation response.
 
