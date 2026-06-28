@@ -218,3 +218,8 @@ Submit an appeal:
 POST /appeal
 ```
 
+# Demo Video
+Watch the project demo here:
+
+https://drive.google.com/file/d/1qeCV-Sz-a2YemiiKj5gFya2OrAolw4gP/view?usp=sharing
+
