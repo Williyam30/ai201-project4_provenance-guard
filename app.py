@@ -3,7 +3,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from detector import detect_with_groq
-from audit import save_log, get_log
+from audit import save_log, get_log, overwrite_log
 
 from confidence import calculate_confidence    # milestone 4
 from labels import get_label
@@ -17,7 +17,8 @@ app = Flask(__name__)
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["10 per minute"]
+    default_limits=[],
+    storage_uri="memory://"
 )
 
 
@@ -32,6 +33,7 @@ def home():
 
 
 @app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
 def submit():
 
     data = request.get_json()
@@ -51,8 +53,10 @@ def submit():
     # final = calculate_confidence(llm_score, style)
     
     #final = calculate_confidence(llm["llm_score"],style)
+
+    label = get_label(final["confidence"])
     
-    label = get_label(final["attribution"])
+    #label = get_label(final["attribution"])
     
     content_id = str(uuid.uuid4())
 
@@ -64,7 +68,8 @@ def submit():
         "stylometric_score": style,
         "confidence": final["confidence"],
         "attribution": final["attribution"],
-        "status": "classified"
+        "status": "classified",
+        "appeal_reasoning": None
         }
     
     print("LLM:", llm)      # for debugging purp
@@ -93,6 +98,38 @@ def log():
             "entries": get_log()
         }
     )
+
+@app.route("/appeal", methods=["POST"])
+def appeal():
+    data = request.get_json()
+
+    content_id = data["content_id"]
+    reasoning = data["creator_reasoning"]
+
+    logs = get_log()
+
+    updated = False
+
+    for entry in logs:
+        if entry["content_id"] == content_id:
+            entry["status"] = "under_review"
+            entry["appeal_reasoning"] = reasoning
+            updated = True
+            break
+
+    if not updated:
+        return jsonify({
+            "error": "Content ID not found"
+        }), 404
+
+    #save_log(logs)
+    overwrite_log(logs)
+
+    return jsonify({
+        "message": "Appeal received",
+        "content_id": content_id,
+        "status": "under_review"
+    })
 
 
 if __name__ == "__main__":

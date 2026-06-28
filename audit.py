@@ -30,3 +30,9 @@ def get_log():
 
     with open(LOG_FILE, "r") as file:
         return json.load(file)
+    
+def overwrite_log(logs):
+
+    with open(LOG_FILE, "w") as file:
+        #json.dump(logs, file, indent=4)
+        json.dump(logs, file, indent=4)
